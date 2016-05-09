@@ -13,6 +13,7 @@ WORKDIR $HTTPD_PREFIX
 # https://httpd.apache.org/docs/2.4/install.html#requirements
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
+    wget \
 		libapr1 \
 		libaprutil1 \
 		libapr1-dev \
@@ -31,6 +32,7 @@ RUN buildDeps=' \
 		gcc \
 		libpcre++-dev \
 		libssl-dev \
+    libperl-dev \
 		make \
 	' \
 	set -x \
@@ -46,9 +48,11 @@ RUN buildDeps=' \
 	&& rm -r "$GNUPGHOME" httpd.tar.bz2.asc \
 	&& mkdir -p src/httpd \
 	&& tar -xvf httpd.tar.bz2 -C src/httpd --strip-components=1 \
-	&& rm httpd.tar.bz2 \
-	&& cd src/httpd \
-	&& ./configure --enable-so --enable-ssl --prefix=$HTTPD_PREFIX --enable-mods-shared=most \
+	&& rm httpd.tar.bz2
+
+
+RUN cd src/httpd \
+	&& ./configure --prefix=$HTTPD_PREFIX  --enable-so --enable-ssl --enable-ldap --enable-proxy --enable-proxy-http --enable-proxy-html --enable-mods-shared=all \
 	&& make -j"$(nproc)" \
 	&& make install \
 	&& cd ../../ \
@@ -58,6 +62,27 @@ RUN buildDeps=' \
 		s!^(\s*ErrorLog)\s+\S+!\1 /proc/self/fd/2!g; \
 		' /usr/local/apache2/conf/httpd.conf \
 	&& apt-get purge -y --auto-remove $buildDeps
+
+
+RUN ln -s /usr/lib/x86_64-linux-gnu/libgdbm.so.3.0.0 /usr/lib/x86_64-linux-gnu/libgdbm.so
+
+RUN perl -MCPAN -e 'install File::Spec::Functions'
+RUN perl -MCPAN -e 'install Net::LDAP'
+
+ENV MOD_PERL_VERSION 2.0.9
+ENV MOD_PERL_URL http://mirrors.ircam.fr/pub/apache/perl/mod_perl-${MOD_PERL_VERSION}.tar.gz
+
+RUN curl -fSL "$MOD_PERL_URL" -o mod_perl.tar.gz
+
+RUN mkdir -p src/mod_perl \
+  && tar -xvf mod_perl.tar.gz -C src/mod_perl --strip-components=1 \
+  && rm mod_perl.tar.gz \
+  && cd src/mod_perl \
+  && perl Makefile.PL MP_APXS=/usr/local/apache2/bin/apxs \
+  && make \
+  && make test \
+  && make install
+
 
 COPY httpd-foreground /usr/local/bin/
 
